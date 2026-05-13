@@ -1,0 +1,38 @@
+# Render Blueprint — adjust service names and branch as needed
+databases:
+  - name: survival-db
+    plan: free
+    databaseName: survival
+    user: survival
+
+services:
+  - type: web
+    name: survival-api
+    runtime: python
+    rootDir: apps/api
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: survival-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+  - type: web
+    name: survival-web
+    runtime: static
+    rootDir: apps/web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
