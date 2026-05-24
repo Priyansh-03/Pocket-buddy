@@ -1,8 +1,14 @@
-const base = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "";
+/** Dev: empty VITE_API_URL → same-origin `/api/...` + Vite proxy (avoids CORS). Prod: full URL required. */
+const rawBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/$/, "") ?? "";
+const useDevProxy = Boolean(import.meta.env.DEV && !rawBase);
 
 export function apiUrl(path: string) {
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${p}`;
+  if (useDevProxy) return `/api${p}`;
+  if (!rawBase) {
+    throw new Error("Set VITE_API_URL for production builds (e.g. https://your-api.onrender.com)");
+  }
+  return `${rawBase}${p}`;
 }
 
 export async function apiFetch<T>(

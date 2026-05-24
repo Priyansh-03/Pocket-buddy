@@ -31,8 +31,7 @@ export function LoginPage() {
   return (
     <div className="shell narrow center">
       <div className="card">
-        <h1 className="logo">Kharcha</h1>
-        <p className="muted tag">Roz ke spends · INR · DB save</p>
+        <h1 className="logo">Pocket Buddy</h1>
         <form className="stack" onSubmit={onSubmit}>
           <label className="field">
             <span>Email</span>
@@ -70,9 +69,6 @@ export function LoginPage() {
               </button>
             </>
           )}
-        </p>
-        <p className="muted small">
-          LLM keys <strong>apps/api/.env</strong> par set hoti hain; yahan sirf login / chat.
         </p>
       </div>
     </div>

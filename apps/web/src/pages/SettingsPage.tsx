@@ -1,48 +1,54 @@
-import { FormEvent, useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { FormEvent, useCallback, useEffect, useState, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { formatNowIST } from "../lib/istClock";
 import { EXTERNAL_AI_EXPORT_PROMPT } from "../prompts/externalExpenseExportPrompt";
 
-const PROFILE_CHAT_SESSION = "survival_money_profile_session";
-
-const MONEY_ONBOARDING_INTRO =
-  "Money & savings — yahan Shift+Enter se nayi line, Enter se bhejo.\n\n" +
-  "Upar Copy prompt wala text ChatGPT ya kisi aur AI mein paste karo jahan tumne spends discuss ki hon; woh BEGIN_EXPORT … END_EXPORT block dega. Poora block yahan paste karo — main PROFILE merge aur clear INR par expenses add kar sakti hoon.\n\n" +
-  "Ya seedha likho: salary kab (mahine ki 1–31), rent / fixed, rough bank / UPI cash, goals / EMI. Main chat mein bonus / refund bata kar estimated cash bhi update ho sakta hai.";
-
-type LlmOut = {
-  provider: string;
-  openrouter_http_referer: string | null;
-  server_key_configured: boolean;
+type LlmOut = { provider: string; openrouter_http_referer: string | null; server_key_configured: boolean };
+type ImportWallet = { id: number; label: string; balance_inr: number };
+type ImportRecurring = { item: string; amount_inr: number; cadence: string; note: string };
+type ImportExpense = { date: string; description: string; amount_inr: number; category: string };
+type ImportData = {
+  profile: { salary_day_of_month: number | null; monthly_rent_inr: number | null; daily_budget_inr: number | null; wallets: ImportWallet[] };
+  recurring: ImportRecurring[];
+  expenses: ImportExpense[];
 };
-
-type ChatMsg = { role: "user" | "assistant"; content: string };
-
-function bubbleText(s: string) {
-  return s.replace(/\*\*/g, "");
-}
 
 export function SettingsPage() {
   const { token, user, refreshUser } = useAuth();
-  const [llm, setLlm] = useState<LlmOut | null>(null);
-  const [provider, setProvider] = useState<"openai" | "openrouter" | "gemini">("openai");
-  const [referer, setReferer] = useState("");
-  const [salaryDay, setSalaryDay] = useState<string>("");
-  const [rent, setRent] = useState("");
-  const [cash, setCash] = useState("");
+  const [istNow, setIstNow] = useState(() => formatNowIST());
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const [moneyMsgs, setMoneyMsgs] = useState<ChatMsg[]>([{ role: "assistant", content: MONEY_ONBOARDING_INTRO }]);
-  const [moneySessionId, setMoneySessionId] = useState<string | null>(() => localStorage.getItem(PROFILE_CHAT_SESSION));
-  const [moneyInput, setMoneyInput] = useState("");
-  const [moneySending, setMoneySending] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
-  const [istNow, setIstNow] = useState(() => formatNowIST());
-  const moneyBottomRef = useRef<HTMLDivElement | null>(null);
+  // import state
+  const [importJson, setImportJson] = useState("");
+  const [importData, setImportData] = useState<ImportData | null>(null);
+  const [importErr, setImportErr] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importDone, setImportDone] = useState(false);
+
+  // provider state
+  const [llm, setLlm] = useState<LlmOut | null>(null);
+  const [provider, setProvider] = useState<"openai" | "openrouter" | "gemini">("openai");
+  const [referer, setReferer] = useState("");
+
+  // profile state (always-visible editable fields)
+  const [salaryDay, setSalaryDay] = useState("");
+  const [rent, setRent] = useState("");
+  const [dailyBudget, setDailyBudget] = useState("");
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
+
+  // memory state
+  const [foodMenu, setFoodMenu] = useState("");
+  const [remember, setRemember] = useState("");
+
+  useEffect(() => {
+    const id = window.setInterval(() => setIstNow(formatNowIST()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const loadLlm = useCallback(async () => {
     if (!token) return;
@@ -51,269 +57,324 @@ export function SettingsPage() {
       setLlm(l);
       setProvider(l.provider as "openai" | "openrouter" | "gemini");
       setReferer(l.openrouter_http_referer || "");
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not load AI settings");
-    }
+    } catch { /* ignore */ }
   }, [token]);
 
-  useEffect(() => {
-    void loadLlm();
-  }, [loadLlm]);
+  useEffect(() => { void loadLlm(); }, [loadLlm]);
 
   useEffect(() => {
     if (!user) return;
     setSalaryDay(user.salary_day != null ? String(user.salary_day) : "");
     setRent(user.monthly_rent_inr != null ? String(user.monthly_rent_inr) : "");
-    setCash(user.estimated_cash_inr != null ? String(user.estimated_cash_inr) : "");
+    setDailyBudget(user.daily_budget_inr != null ? String(user.daily_budget_inr) : "");
+    setFoodMenu(user.food_menu_text ?? "");
+    setRemember(user.remember_text ?? "");
   }, [user]);
 
-  useEffect(() => {
-    moneyBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [moneyMsgs, moneySending]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setIstNow(formatNowIST()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  async function copyExternalPrompt() {
+  async function copyPrompt() {
     try {
       await navigator.clipboard.writeText(EXTERNAL_AI_EXPORT_PROMPT);
-      setPromptCopied(true);
-      window.setTimeout(() => setPromptCopied(false), 2500);
-      setErr(null);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     } catch {
-      setErr("Clipboard blocked — neeche box se manually select karke copy karo.");
+      setErr("Clipboard blocked — manually select and copy the text below.");
     }
   }
 
-  async function submitMoneyChat() {
-    const t = moneyInput.trim();
-    if (!t || !token || !llm?.server_key_configured || moneySending) return;
-    setMoneyInput("");
-    setErr(null);
-    setMoneySending(true);
-    setMoneyMsgs((m) => [...m, { role: "user", content: t }]);
+  function parseJson() {
+    setImportErr(null);
+    setImportDone(false);
     try {
-      const body: { message: string; session_id?: string } = { message: t };
-      if (moneySessionId) body.session_id = moneySessionId;
-      const res = await apiFetch<{ session_id: string; reply: string }>("/chat", {
-        method: "POST",
-        token,
-        body: JSON.stringify(body),
+      const raw = JSON.parse(importJson.trim()) as ImportData;
+      const p = raw.profile ?? {};
+      setImportData({
+        profile: {
+          salary_day_of_month: (p as ImportData["profile"]).salary_day_of_month ?? null,
+          monthly_rent_inr: (p as ImportData["profile"]).monthly_rent_inr ?? null,
+          daily_budget_inr: (p as ImportData["profile"]).daily_budget_inr ?? null,
+          wallets: ((p as ImportData["profile"]).wallets ?? []).map((w) => ({ id: Number(w.id) || 1, label: w.label ?? "", balance_inr: Number(w.balance_inr) || 0 })),
+        },
+        recurring: (raw.recurring ?? []).map((r) => ({ item: r.item ?? "", amount_inr: Number(r.amount_inr) || 0, cadence: r.cadence ?? "monthly", note: r.note ?? "" })),
+        expenses: (raw.expenses ?? []).map((e) => ({ date: e.date ?? "unknown", description: e.description ?? "", amount_inr: Number(e.amount_inr) || 0, category: e.category ?? "misc" })),
       });
-      setMoneySessionId(res.session_id);
-      localStorage.setItem(PROFILE_CHAT_SESSION, res.session_id);
-      setMoneyMsgs((m) => [...m, { role: "assistant", content: res.reply }]);
-      await refreshUser();
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Message failed");
-      setMoneyMsgs((m) => [...m, { role: "assistant", content: "Could not reach the assistant — check API key / network." }]);
-    } finally {
-      setMoneySending(false);
+    } catch {
+      setImportErr("Invalid JSON — paste the raw JSON output from ChatGPT.");
     }
   }
 
-  async function sendMoneyChat(e: FormEvent) {
-    e.preventDefault();
-    await submitMoneyChat();
+  function updateWallet(idx: number, field: keyof ImportWallet, value: string) {
+    if (!importData) return;
+    setImportData({ ...importData, profile: { ...importData.profile, wallets: importData.profile.wallets.map((w, i) => i === idx ? { ...w, [field]: field === "balance_inr" || field === "id" ? Number(value) || 0 : value } : w) } });
+  }
+  function updateRecurring(idx: number, field: keyof ImportRecurring, value: string) {
+    if (!importData) return;
+    setImportData({ ...importData, recurring: importData.recurring.map((r, i) => i === idx ? { ...r, [field]: field === "amount_inr" ? Number(value) || 0 : value } : r) });
+  }
+  function updateExpense(idx: number, field: keyof ImportExpense, value: string) {
+    if (!importData) return;
+    setImportData({ ...importData, expenses: importData.expenses.map((e, i) => i === idx ? { ...e, [field]: field === "amount_inr" ? Number(value) || 0 : value } : e) });
   }
 
-  function onMoneyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key !== "Enter" || e.shiftKey) return;
-    e.preventDefault();
-    void submitMoneyChat();
-  }
-
-  function resetMoneyChat() {
-    localStorage.removeItem(PROFILE_CHAT_SESSION);
-    setMoneySessionId(null);
-    setMoneyMsgs([{ role: "assistant", content: MONEY_ONBOARDING_INTRO }]);
-  }
-
-  async function saveLlm(e: FormEvent) {
-    e.preventDefault();
-    if (!token) return;
-    setBusy(true);
-    setErr(null);
-    setMsg(null);
+  async function doImport() {
+    if (!importData || !token) return;
+    setImportBusy(true);
+    setImportErr(null);
     try {
-      await apiFetch<LlmOut>("/users/me/llm", {
-        method: "PUT",
-        token,
-        body: JSON.stringify({
-          provider,
-          openrouter_http_referer: referer || null,
-        }),
-      });
-      const fresh = await apiFetch<LlmOut>("/users/me/llm", { token, method: "GET" });
-      setLlm(fresh);
-      setMsg(
-        fresh.server_key_configured
-          ? "Provider save ho gaya. LLM key apps/api/.env se aa rahi hai."
-          : "Provider save ho gaya — lekin is provider ke liye server .env mein abhi key nahi mili (neeche dekho).",
-      );
+      await apiFetch("/users/me/import", { method: "POST", token, body: JSON.stringify(importData) });
       await refreshUser();
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Save failed");
+      setImportDone(true);
+      setImportData(null);
+      setImportJson("");
+    } catch (e) {
+      setImportErr(e instanceof Error ? e.message : "Import failed");
     } finally {
-      setBusy(false);
+      setImportBusy(false);
     }
   }
 
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
-    setErr(null);
-    setMsg(null);
-
-    const body: Record<string, unknown> = {};
-    const sdRaw = salaryDay.trim();
-    if (sdRaw) {
-      if (!/^\d{1,2}$/.test(sdRaw)) {
-        setErr("Salary day: sirf 1–31 tak ki puri sankhya (mahine ki date), bina dash/comma.");
-        return;
-      }
-      const n = parseInt(sdRaw, 10);
-      if (n < 1 || n > 31) {
-        setErr("Salary day 1 se 31 ke beech hona chahiye (kis din salary aati hai).");
-        return;
-      }
-      body.salary_day = n;
-    } else {
-      body.salary_day = null;
-    }
-    if (rent.trim()) body.monthly_rent_inr = rent;
-    else body.monthly_rent_inr = null;
-    if (cash.trim()) body.estimated_cash_inr = cash;
-    else body.estimated_cash_inr = null;
-
-    setBusy(true);
+    setBusy(true); setProfileMsg(null); setErr(null);
     try {
+      const body: Record<string, unknown> = {
+        salary_day: salaryDay.trim() ? Number(salaryDay) : null,
+        monthly_rent_inr: rent.trim() ? rent.trim() : null,
+        daily_budget_inr: dailyBudget.trim() ? dailyBudget.trim() : null,
+      };
       await apiFetch("/users/me", { method: "PATCH", token, body: JSON.stringify(body) });
       await refreshUser();
-      setMsg("Numbers manually save ho gaye.");
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Profile save failed");
-    } finally {
-      setBusy(false);
-    }
+      setProfileMsg("Saved.");
+      setTimeout(() => setProfileMsg(null), 2000);
+    } catch (ex) { setErr(ex instanceof Error ? ex.message : "Save failed"); }
+    finally { setBusy(false); }
   }
 
-  const keyHint =
-    provider === "openai"
-      ? "OPENAI_API_KEY (ya OUTSPARK_OPENAI_STAGING_API_KEY)"
-      : provider === "openrouter"
-        ? "OPENROUTER_API_KEY"
-        : "GEMINI_API_KEY";
+  async function saveLlm(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await apiFetch("/users/me/llm", { method: "PUT", token, body: JSON.stringify({ provider, openrouter_http_referer: referer || null }) });
+      await loadLlm();
+      await refreshUser();
+      setMsg("Provider saved.");
+    } catch (ex) { setErr(ex instanceof Error ? ex.message : "Save failed"); }
+    finally { setBusy(false); }
+  }
+
+  async function saveMemory(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await apiFetch("/users/me", { method: "PATCH", token, body: JSON.stringify({ food_menu_text: foodMenu.trim() || null, remember_text: remember.trim() || null }) });
+      await refreshUser();
+      setMsg("Memory saved.");
+    } catch (ex) { setErr(ex instanceof Error ? ex.message : "Save failed"); }
+    finally { setBusy(false); }
+  }
+
+  const keyHint = provider === "openai" ? "OPENAI_API_KEY" : provider === "openrouter" ? "OPENROUTER_API_KEY" : "GEMINI_API_KEY";
 
   return (
     <div className="shell narrow">
       <header className="topbar">
         <div>
           <h1 className="title">Settings</h1>
-          <p className="muted small">
-            LLM API keys sirf <strong>apps/api/.env</strong> (server) par rakho — UI par key paste nahi hoti.
-          </p>
-          <p className="muted small ist-clock" title="Asia/Kolkata (IST)">
-            {istNow}
-          </p>
+          <p className="muted small ist-clock">{istNow}</p>
         </div>
-        <Link className="btn ghost" to="/">
-          ← Chat
-        </Link>
+        <Link className="btn ghost" to="/">← Chat</Link>
       </header>
 
       {msg && <div className="banner ok">{msg}</div>}
       {err && <div className="banner error">{err}</div>}
 
+      {/* ── Budget & Profile ── */}
       <section className="card stack">
-        <h2>Money & savings</h2>
-        <p className="muted small">
-          Lamba budget / export bhej sakte ho (server ab zyada bada message accept karta hai). Main chat mein bhi spends + bonus bata sakte ho; assistant tools se cash / runway update hota hai.
-        </p>
-
-        <div className="external-prompt-block">
-          <p className="muted small" style={{ margin: 0 }}>
-            <strong>ChatGPT / doosri AI</strong> se list nikalwane ke liye: neeche prompt <strong>Copy</strong> karo → wahan paste → jo structured block mile (BEGIN_EXPORT … END_EXPORT) woh <strong>niche assistant</strong> mein paste karo. Agar doosri AI ke paas tumhari spends ka context nahi, woh pehle sawal puchegi — jawab deke phir export lo.
-          </p>
-          <div className="row wrap align-end">
-            <button type="button" className="btn primary" onClick={() => void copyExternalPrompt()}>
-              Copy prompt (for ChatGPT / other AI)
-            </button>
-            {promptCopied ? <span className="muted small">Copied.</span> : null}
-          </div>
-          <textarea readOnly className="mono-readonly" rows={12} value={EXTERNAL_AI_EXPORT_PROMPT} aria-label="Prompt to copy into another AI" />
-        </div>
-
-        {!llm?.server_key_configured && (
-          <p className="muted small text-bad">
-            AI abhi band hai — neeche provider section mein server key fix karo, phir yahan type kar paoge.
-          </p>
-        )}
-        <h3 className="title" style={{ fontSize: "1rem", margin: "0.25rem 0 0" }}>
-          Assistant — yahan export paste karo ya budget likho
-        </h3>
-        <div className="settings-chat">
-          {moneyMsgs.map((m, i) => (
-            <div key={i} className={`bubble ${m.role}`}>
-              {bubbleText(m.content)}
-            </div>
-          ))}
-          {moneySending && (
-            <div className="bubble assistant typing">
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
-            </div>
-          )}
-          <div ref={moneyBottomRef} />
-        </div>
-        <form className="row align-end wrap" onSubmit={sendMoneyChat}>
-          <textarea
-            className="grow input-grow"
-            rows={3}
-            maxLength={100_000}
-            placeholder={llm?.server_key_configured ? "Export paste ya budget… Shift+Enter newline, Enter send" : "Pehle server key…"}
-            value={moneyInput}
-            onChange={(e) => setMoneyInput(e.target.value)}
-            onKeyDown={onMoneyKeyDown}
-            disabled={!llm?.server_key_configured || moneySending}
-          />
-          <button className="btn primary" type="submit" disabled={!llm?.server_key_configured || moneySending || !moneyInput.trim()}>
-            Send
-          </button>
-          <button type="button" className="btn ghost" onClick={resetMoneyChat}>
-            Reset chat
-          </button>
-        </form>
-
-        <details className="manual-block">
-          <summary>Optional — numbers manually (salary date / rent / cash)</summary>
-          <form className="stack" onSubmit={saveProfile}>
+        <h2>Budget &amp; Profile</h2>
+        <form className="stack" onSubmit={(e) => void saveProfile(e)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
             <label className="field">
-              <span>Salary day — mahine ki kaunsi tareekh (1–31)</span>
-              <input inputMode="numeric" value={salaryDay} onChange={(e) => setSalaryDay(e.target.value)} placeholder="e.g. 5 ya 28" />
-              <span className="muted small">Rent/cash nahi — sirf calendar date.</span>
+              <span>Daily budget (₹)</span>
+              <input inputMode="decimal" value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} placeholder="e.g. 500" />
             </label>
             <label className="field">
               <span>Monthly rent (₹)</span>
-              <input inputMode="decimal" value={rent} onChange={(e) => setRent(e.target.value)} />
+              <input inputMode="decimal" value={rent} onChange={(e) => setRent(e.target.value)} placeholder="e.g. 15000" />
             </label>
             <label className="field">
-              <span>Estimated cash now (₹)</span>
-              <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value)} />
+              <span>Salary day (1–31)</span>
+              <input inputMode="numeric" value={salaryDay} onChange={(e) => setSalaryDay(e.target.value)} placeholder="e.g. 5" />
             </label>
-            <button className="btn primary" type="submit" disabled={busy}>
-              Save numbers
-            </button>
-          </form>
-        </details>
+          </div>
+
+          {/* Wallets inline */}
+          <div>
+            <p className="muted small" style={{ marginBottom: "0.4rem" }}>Wallets</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem" }}>
+              {[1,2,3,4,5].map((wid) => {
+                const val = user?.[`wallet_${wid}_inr` as keyof typeof user];
+                if (val == null) return null;
+                const loanKey = `wallet_${wid}_loan_inr` as keyof typeof user;
+                const loan = user?.[loanKey];
+                const loanNum = loan != null ? Number(loan) : null;
+                return (
+                  <div key={wid} style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    <label className="field" style={{ margin: 0 }}>
+                      <span>Wallet {wid} (₹)</span>
+                      <input
+                        inputMode="decimal"
+                        defaultValue={String(val)}
+                        onBlur={async (e) => {
+                          const clean = e.target.value.trim().replace(/,/g, "");
+                          if (!clean || !token) return;
+                          await apiFetch("/users/me", { method: "PATCH", token, body: JSON.stringify({ [`wallet_${wid}_inr`]: clean, active_wallet_id: wid }) });
+                          await refreshUser();
+                        }}
+                      />
+                    </label>
+                    {wid !== 1 && loanNum != null && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem" }}>
+                        <span style={{ color: loanNum < 0 ? "#ef4444" : "#22c55e", fontWeight: 600 }}>
+                          Loan: {loanNum < 0 ? "" : "+"}{loanNum.toLocaleString("en-IN")}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}
+                          onClick={async () => {
+                            if (!token) return;
+                            await apiFetch("/users/me", { method: "PATCH", token, body: JSON.stringify({ clear_loan_wallet_ids: [wid] }) });
+                            await refreshUser();
+                          }}
+                        >
+                          Clear loan
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="row" style={{ alignItems: "center", gap: "0.75rem" }}>
+            <button className="btn primary" type="submit" disabled={busy}>Save</button>
+            {profileMsg && <span className="muted small">{profileMsg}</span>}
+          </div>
+        </form>
       </section>
 
+      {/* ── STEP 1: Copy prompt ── */}
+      <section className="card stack">
+        <h2>Step 1 — Copy this prompt into ChatGPT / Claude</h2>
+        <p className="muted small">Paste it into the AI where you've discussed your finances. It will output a JSON block. Then paste that JSON in Step 2.</p>
+        <button type="button" className="btn primary" style={{ alignSelf: "flex-start" }} onClick={() => void copyPrompt()}>
+          {copied ? "Copied!" : "Copy prompt"}
+        </button>
+        <textarea
+          readOnly
+          className="mono-readonly"
+          rows={14}
+          value={EXTERNAL_AI_EXPORT_PROMPT}
+          style={{ fontSize: "0.78rem", fontFamily: "monospace" }}
+        />
+      </section>
+
+      {/* ── STEP 2: Paste JSON → edit → import ── */}
+      <section className="card stack">
+        <h2>Step 2 — Paste JSON, edit, import</h2>
+        {importDone && <div className="banner ok">Imported! Wallets and expenses updated.</div>}
+        {importErr && <div className="banner error">{importErr}</div>}
+
+        {!importData ? (
+          <div className="stack">
+            <textarea
+              className="mono-readonly"
+              rows={8}
+              style={{ fontFamily: "monospace", fontSize: "0.78rem" }}
+              placeholder={'Paste the JSON from ChatGPT here…\n{\n  "profile": { ... },\n  "recurring": [...],\n  "expenses": [...]\n}'}
+              value={importJson}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setImportJson(e.target.value)}
+            />
+            <button className="btn primary" type="button" style={{ alignSelf: "flex-start" }} onClick={parseJson} disabled={!importJson.trim()}>
+              Parse JSON
+            </button>
+          </div>
+        ) : (
+          <div className="stack">
+            <h3 style={{ margin: 0 }}>Profile</h3>
+            <table className="import-table">
+              <tbody>
+                <tr><td>Salary day</td><td><input type="number" min={1} max={31} value={importData.profile.salary_day_of_month ?? ""} onChange={(e) => setImportData({ ...importData, profile: { ...importData.profile, salary_day_of_month: e.target.value ? Number(e.target.value) : null } })} placeholder="null" /></td></tr>
+                <tr><td>Monthly rent (₹)</td><td><input type="number" value={importData.profile.monthly_rent_inr ?? ""} onChange={(e) => setImportData({ ...importData, profile: { ...importData.profile, monthly_rent_inr: e.target.value ? Number(e.target.value) : null } })} placeholder="null" /></td></tr>
+                <tr><td>Daily budget (₹)</td><td><input type="number" value={importData.profile.daily_budget_inr ?? ""} onChange={(e) => setImportData({ ...importData, profile: { ...importData.profile, daily_budget_inr: e.target.value ? Number(e.target.value) : null } })} placeholder="null" /></td></tr>
+              </tbody>
+            </table>
+
+            <h3 style={{ margin: 0 }}>Wallets ({importData.profile.wallets.length})</h3>
+            <table className="import-table">
+              <thead><tr><th>ID</th><th>Label</th><th>Balance (₹)</th></tr></thead>
+              <tbody>
+                {importData.profile.wallets.map((w, i) => (
+                  <tr key={i}>
+                    <td><input type="number" min={1} max={5} value={w.id} onChange={(e) => updateWallet(i, "id", e.target.value)} /></td>
+                    <td><input value={w.label} onChange={(e) => updateWallet(i, "label", e.target.value)} /></td>
+                    <td><input type="number" value={w.balance_inr} onChange={(e) => updateWallet(i, "balance_inr", e.target.value)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h3 style={{ margin: 0 }}>Recurring ({importData.recurring.length})</h3>
+            <table className="import-table">
+              <thead><tr><th>Item</th><th>₹</th><th>Cadence</th><th>Note</th><th></th></tr></thead>
+              <tbody>
+                {importData.recurring.map((r, i) => (
+                  <tr key={i}>
+                    <td><input value={r.item} onChange={(e) => updateRecurring(i, "item", e.target.value)} /></td>
+                    <td><input type="number" value={r.amount_inr} onChange={(e) => updateRecurring(i, "amount_inr", e.target.value)} /></td>
+                    <td><input value={r.cadence} onChange={(e) => updateRecurring(i, "cadence", e.target.value)} /></td>
+                    <td><input value={r.note} onChange={(e) => updateRecurring(i, "note", e.target.value)} /></td>
+                    <td><button type="button" className="btn ghost" style={{ padding: "0 0.4rem" }} onClick={() => setImportData({ ...importData, recurring: importData.recurring.filter((_, j) => j !== i) })}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h3 style={{ margin: 0 }}>Expenses ({importData.expenses.length})</h3>
+            <table className="import-table">
+              <thead><tr><th>Date</th><th>Description</th><th>₹</th><th>Category</th><th></th></tr></thead>
+              <tbody>
+                {importData.expenses.map((e, i) => (
+                  <tr key={i}>
+                    <td><input value={e.date} onChange={(ev) => updateExpense(i, "date", ev.target.value)} /></td>
+                    <td><input value={e.description} onChange={(ev) => updateExpense(i, "description", ev.target.value)} /></td>
+                    <td><input type="number" value={e.amount_inr} onChange={(ev) => updateExpense(i, "amount_inr", ev.target.value)} /></td>
+                    <td><input value={e.category} onChange={(ev) => updateExpense(i, "category", ev.target.value)} /></td>
+                    <td><button type="button" className="btn ghost" style={{ padding: "0 0.4rem" }} onClick={() => setImportData({ ...importData, expenses: importData.expenses.filter((_, j) => j !== i) })}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="row" style={{ gap: "0.5rem" }}>
+              <button className="btn primary" type="button" onClick={() => void doImport()} disabled={importBusy}>
+                {importBusy ? "Importing…" : "Import to app"}
+              </button>
+              <button className="btn ghost" type="button" onClick={() => { setImportData(null); setImportDone(false); setImportErr(null); }}>
+                Reset
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── AI Provider ── */}
       <section className="card stack">
         <h2>AI provider</h2>
-        <form className="stack" onSubmit={saveLlm}>
+        <form className="stack" onSubmit={(e) => void saveLlm(e)}>
           <div className="row wrap">
             {(["openai", "openrouter", "gemini"] as const).map((p) => (
               <label key={p} className="pill">
@@ -323,26 +384,34 @@ export function SettingsPage() {
             ))}
           </div>
           <p className="muted small">
-            Server key status (chosen provider):{" "}
-            {!llm ? (
-              "loading…"
-            ) : llm.server_key_configured ? (
-              <strong className="text-ok">OK — {keyHint} set hai</strong>
-            ) : (
-              <strong className="text-bad">
-                missing — apps/api/.env mein {keyHint} add karo, API restart karo
-              </strong>
-            )}
+            Key status:{" "}
+            {!llm ? "loading…" : llm.server_key_configured
+              ? <strong className="text-ok">OK — {keyHint} set</strong>
+              : <strong className="text-bad">missing — set {keyHint} in apps/api/.env and restart</strong>}
           </p>
           {provider === "openrouter" && (
             <label className="field">
-              <span>HTTP-Referer (OpenRouter)</span>
+              <span>HTTP-Referer</span>
               <input value={referer} onChange={(e) => setReferer(e.target.value)} placeholder="https://your-site.example" />
             </label>
           )}
-          <button className="btn primary" type="submit" disabled={busy}>
-            Save provider
-          </button>
+          <button className="btn primary" type="submit" disabled={busy} style={{ alignSelf: "flex-start" }}>Save provider</button>
+        </form>
+      </section>
+
+      {/* ── Memory ── */}
+      <section className="card stack">
+        <h2>Assistant memory</h2>
+        <form className="stack" onSubmit={(e) => void saveMemory(e)}>
+          <label className="field">
+            <span>Food menu (items + prices — shown to assistant every reply)</span>
+            <textarea className="input-grow" rows={6} maxLength={50_000} value={foodMenu} onChange={(e) => setFoodMenu(e.target.value)} placeholder="e.g. Masala dosa ₹90, idli ₹40…" />
+          </label>
+          <label className="field">
+            <span>Always remember</span>
+            <textarea className="input-grow" rows={4} maxLength={50_000} value={remember} onChange={(e) => setRemember(e.target.value)} placeholder="Notes the assistant should always keep in mind…" />
+          </label>
+          <button className="btn primary" type="submit" disabled={busy} style={{ alignSelf: "flex-start" }}>Save memory</button>
         </form>
       </section>
     </div>

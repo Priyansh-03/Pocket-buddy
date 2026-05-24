@@ -28,16 +28,31 @@ class UserOut(BaseModel):
     salary_day: int | None
     monthly_rent_inr: Decimal | None
     estimated_cash_inr: Decimal | None
+    daily_budget_inr: Decimal | None = None
+    profit_inr: Decimal | None = None
     wallet_1_inr: Decimal | None = None
     wallet_2_inr: Decimal | None = None
     wallet_3_inr: Decimal | None = None
     wallet_4_inr: Decimal | None = None
     wallet_5_inr: Decimal | None = None
+    wallet_1_loan_inr: Decimal | None = None
+    wallet_2_loan_inr: Decimal | None = None
+    wallet_3_loan_inr: Decimal | None = None
+    wallet_4_loan_inr: Decimal | None = None
+    wallet_5_loan_inr: Decimal | None = None
     active_wallet_id: int = 1
     money_profile_notes: str | None = None
-    llm_provider: str = "openai"
+    food_menu_text: str | None = None
+    remember_text: str | None = None
+    llm_provider: str = "openrouter"
 
     model_config = {"from_attributes": True}
+
+
+class TodaySummary(BaseModel):
+    budget_inr: Decimal | None
+    spent_inr: Decimal
+    profit_inr: Decimal | None
 
 
 class UserContextUpdate(BaseModel):
@@ -49,6 +64,7 @@ class UserContextUpdate(BaseModel):
     )
     monthly_rent_inr: Decimal | None = None
     estimated_cash_inr: Decimal | None = None
+    daily_budget_inr: Decimal | None = None
     wallet_1_inr: Decimal | None = None
     wallet_2_inr: Decimal | None = None
     wallet_3_inr: Decimal | None = None
@@ -56,7 +72,10 @@ class UserContextUpdate(BaseModel):
     wallet_5_inr: Decimal | None = None
     active_wallet_id: int | None = Field(default=None, ge=1, le=5)
     remove_wallet_ids: list[int] | None = None
+    clear_loan_wallet_ids: list[int] | None = None  # set these wallet loans to null
     money_profile_notes: str | None = Field(default=None, max_length=50000)
+    food_menu_text: str | None = Field(default=None, max_length=50000)
+    remember_text: str | None = Field(default=None, max_length=50000)
 
 
 class ExpenseCreate(BaseModel):
@@ -83,6 +102,39 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: UUID
     reply: str
+
+
+class ImportWallet(BaseModel):
+    id: int = Field(ge=1, le=5)
+    label: str = ""
+    balance_inr: Decimal = Decimal("0")
+
+
+class ImportRecurring(BaseModel):
+    item: str
+    amount_inr: Decimal = Decimal("0")
+    cadence: str = "monthly"
+    note: str = ""
+
+
+class ImportExpenseRow(BaseModel):
+    date: str = "unknown"
+    description: str
+    amount_inr: Decimal = Field(gt=0)
+    category: str = "misc"
+
+
+class ImportProfile(BaseModel):
+    salary_day_of_month: int | None = Field(default=None, ge=1, le=31)
+    monthly_rent_inr: Decimal | None = None
+    daily_budget_inr: Decimal | None = None
+    wallets: list[ImportWallet] = []
+
+
+class FinancialImport(BaseModel):
+    profile: ImportProfile = ImportProfile()
+    recurring: list[ImportRecurring] = []
+    expenses: list[ImportExpenseRow] = []
 
 
 class LlmSettingsOut(BaseModel):

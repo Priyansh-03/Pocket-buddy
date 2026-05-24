@@ -1,4 +1,4 @@
-import { ArrowRight, Check, ChevronDown, Disc, Mic, Paperclip, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Mic, Paperclip, Plus } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -61,12 +61,13 @@ const OPENAI_ICON = (
       width: 16,
       height: 16,
       borderRadius: 999,
-      border: "1px solid #000",
+      border: "none",
       background: "rgba(255,255,255,0.9)",
       color: "#111",
       fontSize: 8,
       fontWeight: 700,
       lineHeight: 1,
+      boxShadow: "0 1px 2px rgba(55,38,62,0.15)",
     }}
   >
     AI
@@ -83,12 +84,13 @@ const OPENROUTER_ICON = (
       width: 16,
       height: 16,
       borderRadius: 999,
-      border: "1px solid #000",
+      border: "none",
       background: "rgba(255,255,255,0.9)",
       color: "#111",
       fontSize: 8,
       fontWeight: 700,
       lineHeight: 1,
+      boxShadow: "0 1px 2px rgba(55,38,62,0.15)",
     }}
   >
     OR
@@ -126,9 +128,9 @@ export type ChatComposerProps = {
   provider: LlmProviderId;
   onProviderChange?: (id: LlmProviderId) => void;
   onMicClick?: () => void;
-  onRecordClick?: () => void;
   listening?: boolean;
-  recording?: boolean;
+  /** 0 = full ring, 1 = time up (stroke fully drawn away). */
+  micListenElapsedFraction?: number;
 };
 
 export function ChatComposer({
@@ -140,9 +142,8 @@ export function ChatComposer({
   provider,
   onProviderChange,
   onMicClick,
-  onRecordClick,
   listening,
-  recording,
+  micListenElapsedFraction = 0,
 }: ChatComposerProps) {
   const geminiGradId = useId().replace(/:/g, "");
   const providers = useMemo(
@@ -197,9 +198,14 @@ export function ChatComposer({
     });
   }, [value, onChange, textareaRef, adjustHeight]);
 
+  const ringFrac = listening ? Math.min(1, Math.max(0, micListenElapsedFraction)) : 0;
+  const micArcR = 16;
+  const micArcLen = 2 * Math.PI * micArcR;
+  const micDashOffset = micArcLen * ringFrac;
+
   return (
     <div className="w-full max-w-3xl py-2">
-      <div className="rounded-2xl bg-white/28 p-1.5 border border-black/70">
+      <div className="rounded-2xl bg-white/28 p-1.5 shadow-md shadow-black/5 ring-1 ring-white/50">
         <div className="relative flex flex-col">
           <div className="relative flex max-h-[400px] items-end gap-2 overflow-y-auto pr-2 pb-2">
             <div className="relative min-h-[72px] min-w-0 flex-1">
@@ -208,7 +214,7 @@ export function ChatComposer({
                 value={value}
                 placeholder={placeholder}
                 className={cn(
-                  "w-full resize-none rounded-xl rounded-b-none border border-black/70 bg-white/46 py-3 pr-4 pl-10 pb-10 text-[var(--text)]",
+                  "w-full resize-none rounded-xl rounded-b-none bg-white/46 py-3 pr-4 pl-10 pb-10 text-[var(--text)] shadow-inner shadow-black/5 ring-1 ring-white/55",
                   "placeholder:text-[var(--muted)] focus-visible:ring-0 focus-visible:ring-offset-0",
                   "min-h-[72px]",
                 )}
@@ -227,8 +233,8 @@ export function ChatComposer({
                     <button
                       type="button"
                       className={cn(
-                        "pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-black/80",
-                        "bg-white/70 text-[var(--text)] shadow-sm hover:bg-white/90",
+                        "pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full",
+                        "bg-white/80 text-[var(--text)] shadow-md shadow-black/8 ring-1 ring-white/60",
                         "transition-transform duration-200 ease-out data-[state=open]:rotate-180",
                         "disabled:pointer-events-none disabled:opacity-40",
                       )}
@@ -243,14 +249,14 @@ export function ChatComposer({
                     side="top"
                     align="start"
                     sideOffset={8}
-                    className="min-w-[13.5rem] border border-black/70 bg-[rgba(255,250,252,0.97)] p-1 text-[var(--text)] shadow-lg"
+                    className="min-w-[13.5rem] rounded-lg bg-[rgba(255,250,252,0.98)] p-1 text-[var(--text)] shadow-lg shadow-black/10 ring-1 ring-white/70"
                   >
                     <DropdownMenuItem
                       className="flex cursor-pointer flex-col items-start gap-0.5 rounded-md py-2.5 pl-2.5 pr-2 focus:bg-black/[0.06]"
                       onSelect={() => insertUpdatePrefix()}
                     >
                       <span className="font-mono text-[13px] font-semibold tracking-tight text-[#111]">/update</span>
-                      <span className="text-[11px] leading-snug text-[var(--muted)]">DB sync · line bhejo, wallet bhi update ho sakta hai</span>
+                      <span className="text-[11px] leading-snug text-[var(--muted)]">update if any new expense</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -259,7 +265,7 @@ export function ChatComposer({
             <button
               type="button"
               className={cn(
-                "rounded-lg bg-white/40 p-2 border border-black/70",
+                "rounded-lg bg-white/50 p-2 shadow-md shadow-black/6 ring-1 ring-white/55",
                 "hover:bg-white/55",
                 "disabled:opacity-40",
               )}
@@ -276,9 +282,8 @@ export function ChatComposer({
             </button>
           </div>
 
-          <div className="flex h-14 items-center rounded-b-xl bg-white/28 border-x border-b border-black/70">
-            <div className="absolute bottom-3 left-3 right-3 flex w-[calc(100%-24px)] min-w-0 items-center justify-between">
-              <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative flex h-14 min-h-14 shrink-0 items-center rounded-b-xl bg-white/28 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] ring-1 ring-white/45">
+            <div className="flex min-h-0 w-full min-w-0 flex-1 flex-nowrap items-center justify-between gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -317,36 +322,52 @@ export function ChatComposer({
                 {onMicClick ? (
                   <button
                     type="button"
-                    className={cn(
-                      "shrink-0 rounded-lg bg-white/40 p-2 border border-black/70",
-                      "hover:bg-white/55",
-                      listening && "ring-1 ring-cyan-500",
-                    )}
-                    aria-label="Voice input"
                     onClick={onMicClick}
-                  >
-                    <Mic className="h-4 w-4 text-[var(--muted)] transition-colors hover:text-[var(--text)]" />
-                  </button>
-                ) : null}
-
-                {onRecordClick ? (
-                  <button
-                    type="button"
+                    disabled={disabled}
+                    aria-label={listening ? "Stop voice input" : "Voice input"}
                     className={cn(
-                      "shrink-0 rounded-lg bg-white/40 p-2 border border-black/70",
-                      "hover:bg-white/55",
-                      recording && "ring-1 ring-cyan-500",
+                      "relative box-border flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/92",
+                      "border-2 border-solid shadow-none outline-none ring-0",
+                      listening ? "border-cyan-500" : "border-neutral-900/80",
+                      "hover:bg-white",
+                      "focus-visible:ring-2 focus-visible:ring-cyan-400/35 focus-visible:ring-offset-0",
+                      disabled && "pointer-events-none opacity-40",
                     )}
-                    aria-label="Record ~4s"
-                    onClick={onRecordClick}
+                    style={{ WebkitTapHighlightColor: "transparent" }}
                   >
-                    <Disc className="h-4 w-4 text-[var(--muted)] transition-colors hover:text-[var(--text)]" />
+                    {listening ? (
+                      <svg
+                        className="pointer-events-none absolute inset-0 block h-full w-full"
+                        viewBox="0 0 40 40"
+                        preserveAspectRatio="xMidYMid meet"
+                        aria-hidden
+                      >
+                        <circle
+                          cx="20"
+                          cy="20"
+                          r={micArcR}
+                          fill="none"
+                          stroke="#06b6d4"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeDasharray={micArcLen}
+                          strokeDashoffset={micDashOffset}
+                          transform="rotate(-90 20 20)"
+                        />
+                      </svg>
+                    ) : null}
+                    <Mic
+                      className={cn(
+                        "relative z-[1] size-4 shrink-0",
+                        listening ? "text-cyan-600" : "text-neutral-600",
+                      )}
+                    />
                   </button>
                 ) : null}
 
                 <label
                   className={cn(
-                    "shrink-0 cursor-not-allowed rounded-lg bg-white/35 p-2 opacity-70 border border-black/70",
+                    "shrink-0 cursor-not-allowed rounded-lg bg-white/35 p-2 opacity-70 shadow-sm ring-1 ring-white/40",
                   )}
                   aria-label="Attach file (soon)"
                   title="Coming soon"
@@ -355,10 +376,8 @@ export function ChatComposer({
                   <Paperclip className="h-4 w-4 text-[var(--muted)]" />
                 </label>
               </div>
-
             </div>
           </div>
-        </div>
       </div>
     </div>
   );

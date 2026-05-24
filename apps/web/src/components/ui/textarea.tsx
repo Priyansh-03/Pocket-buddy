@@ -8,9 +8,9 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(({ classNa
   return (
     <textarea
       className={cn(
-        "flex min-h-[72px] w-full rounded-xl border border-transparent bg-black/5 px-4 py-3 text-sm text-[#e8eef5]",
-        "placeholder:text-[#8b98a8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40",
-        "disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/5 dark:placeholder:text-white/50",
+        "flex min-h-[72px] w-full rounded-xl border-0 bg-white/55 px-4 py-3 text-sm text-[var(--text)] shadow-inner shadow-black/5 ring-1 ring-white/60",
+        "placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       ref={ref}

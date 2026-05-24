@@ -21,7 +21,7 @@ async def transcribe(
     if not key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="apps/api/.env mein OPENAI_API_KEY ya OUTSPARK_OPENAI_STAGING_API_KEY set karo (Whisper ke liye).",
+            detail="OpenAI API key server par set karo (voice transcribe ke liye).",
         )
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:

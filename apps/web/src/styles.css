@@ -1,15 +1,14 @@
 :root {
   --bg: #d2bad4;
   --panel: #d9c2db;
-  --line: #000000;
   --text: #111111;
   --muted: #2f2f2f;
   --accent: #b878bf;
   --accent-dim: #8d5a93;
   --danger: #f07178;
   --ok: #5da374;
-  --font-display: "Fraunces", Georgia, serif;
-  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-display: "Roboto", system-ui, sans-serif;
+  --font-body: "Roboto", system-ui, sans-serif;
 }
 
 * {
@@ -53,10 +52,11 @@ a {
   max-width: 720px;
   height: 100%;
   background: #ececec;
-  border: 1px solid #000;
+  border: none;
   border-radius: 0;
   padding: 0.85rem 1rem 1rem;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.1);
+  font-family: var(--font-body);
 }
 
 .topbar {
@@ -67,20 +67,29 @@ a {
   margin-bottom: 0.75rem;
 }
 
+.topbar-settings-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #000;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
 .title {
   font-family: var(--font-display);
   font-size: 1.35rem;
+  font-weight: 600;
   margin: 0;
 }
 
 .logo {
   font-family: var(--font-display);
   font-size: 1.75rem;
-  margin: 0 0 0.25rem;
-}
-
-.tag {
-  margin: 0 0 1rem;
+  font-weight: 700;
+  margin: 0 0 0.85rem;
 }
 
 .muted {
@@ -107,7 +116,7 @@ a {
 
 .card {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.14));
-  border: 1px solid var(--line);
+  border: none;
   border-radius: 16px;
   padding: 1.25rem 1.35rem;
   box-shadow: 0 14px 34px rgba(207, 137, 164, 0.2);
@@ -126,6 +135,17 @@ a {
   font-size: 0.9rem;
 }
 
+.field input:not([type="checkbox"]):not([type="radio"]) {
+  border: none;
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(55, 38, 62, 0.08);
+}
+
 .field input.mono-key {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85rem;
@@ -134,13 +154,14 @@ a {
 
 .btn {
   border-radius: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.28);
   color: var(--text);
   padding: 0.55rem 0.9rem;
   font: inherit;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(55, 38, 62, 0.08);
 }
 
 .btn:disabled {
@@ -150,7 +171,7 @@ a {
 
 .btn.primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-  border-color: transparent;
+  border: none;
   color: #3b2430;
   font-weight: 600;
 }
@@ -165,8 +186,8 @@ a {
 }
 
 .btn.icon.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  border: none;
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .link {
@@ -184,9 +205,10 @@ a {
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem 0.6rem;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 999px;
   font-size: 0.85rem;
+  box-shadow: 0 1px 2px rgba(55, 38, 62, 0.06);
 }
 
 .error {
@@ -214,13 +236,44 @@ a {
 .manual-block {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(72, 48, 78, 0.1);
 }
 
 .manual-block summary {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.import-table th,
+.import-table td {
+  padding: 0.25rem 0.35rem;
+  border: 1px solid rgba(72, 48, 78, 0.15);
+  vertical-align: middle;
+}
+.import-table th {
+  background: rgba(72, 48, 78, 0.07);
+  font-weight: 600;
+  text-align: left;
+}
+.import-table input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  font-family: inherit;
+  padding: 0.1rem 0.15rem;
+  color: var(--text);
+  outline: none;
+}
+.import-table input:focus {
+  background: rgba(184, 120, 191, 0.12);
+  border-radius: 3px;
 }
 
 .chat-main {
@@ -238,7 +291,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  border: 1px solid #000;
+  border: none;
   border-radius: 12px;
   background-color: rgba(255, 255, 255, 0.35);
   background-image:
@@ -251,9 +304,10 @@ a {
   flex-shrink: 0;
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  border: 1px solid var(--line);
+  border: none;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.12));
   margin-bottom: 0.35rem;
+  box-shadow: 0 1px 4px rgba(55, 38, 62, 0.08);
 }
 
 .chat-welcome-title {
@@ -295,7 +349,7 @@ a {
   font-size: 0.78rem;
   font-family: ui-monospace, monospace;
   background: rgba(255, 255, 255, 0.34);
-  border: 1px solid #000;
+  border: none;
   color: #161616;
 }
 
@@ -308,6 +362,8 @@ a {
   white-space: pre-wrap;
   position: relative;
   border: 1px solid #000;
+  box-shadow: 0 1px 4px rgba(55, 38, 62, 0.08);
+  font-family: var(--font-body);
 }
 
 .bubble.user {
@@ -322,30 +378,9 @@ a {
   border-bottom-left-radius: 0;
 }
 
-.bubble.user::after {
-  content: "";
-  position: absolute;
-  right: 0px;
-  bottom: -1px;
-  width: 12px;
-  height: 12px;
-  background: transparent;
-  border-right: 0px solid #000;
-  border-bottom: 0px solid #000;
-  transform: rotate(0deg);
-}
-
+.bubble.user::after,
 .bubble.assistant::after {
-  content: "";
-  position: absolute;
-  left: 0px;
-  bottom: -1px;
-  width: 12px;
-  height: 12px;
-  background: transparent;
-  border-left: 0px solid #000;
-  border-bottom: 0px solid #000;
-  transform: rotate(0deg);
+  display: none;
 }
 
 .bubble.typing {
@@ -385,7 +420,7 @@ a {
 .composer-tailwind {
   flex-shrink: 0;
   padding-top: 0.7rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(72, 48, 78, 0.1);
 }
 
 .composer {
@@ -393,7 +428,7 @@ a {
   gap: 0.45rem;
   align-items: flex-end;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(72, 48, 78, 0.1);
 }
 
 .composer .grow {
@@ -410,12 +445,13 @@ textarea.input-grow,
   resize: vertical;
   padding: 0.55rem 0.65rem;
   border-radius: 10px;
-  border: 1px solid var(--line);
+  border: none;
   background: rgba(255, 255, 255, 0.4);
   color: var(--text);
   font: inherit;
   font-size: 0.95rem;
   line-height: 1.4;
+  box-shadow: 0 1px 3px rgba(55, 38, 62, 0.08);
 }
 
 .external-prompt-block {
@@ -423,8 +459,8 @@ textarea.input-grow,
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.75rem 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid rgba(72, 48, 78, 0.1);
+  border-bottom: 1px solid rgba(72, 48, 78, 0.1);
 }
 
 .external-prompt-block textarea.mono-readonly {
@@ -436,10 +472,11 @@ textarea.input-grow,
   line-height: 1.45;
   background: #0a0d11;
   color: #c5d0de;
-  border: 1px solid #2a3544;
+  border: none;
   border-radius: 10px;
   padding: 0.6rem 0.7rem;
   resize: vertical;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .ist-clock {
@@ -453,7 +490,7 @@ textarea.input-grow,
   gap: 0.4rem;
   padding: 0.32rem 0.55rem;
   border-radius: 10px;
-  border: 1px solid #000;
+  border: none;
   background: linear-gradient(155deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.2));
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
@@ -473,16 +510,17 @@ textarea.input-grow,
 }
 
 .wallet-tab {
-  border: 1px solid #000;
+  border: none;
   background: rgba(255, 255, 255, 0.42);
   border-radius: 999px;
   padding: 0.2rem 0.45rem;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  color: #111;
+  color: var(--text);
   font-size: 0.78rem;
   cursor: pointer;
+  box-shadow: 0 1px 3px rgba(55, 38, 62, 0.1);
 }
 
 .wallet-tab.active {
@@ -494,32 +532,34 @@ textarea.input-grow,
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid #000;
+  border: none;
   width: 16px;
   height: 16px;
 }
 
 .wallet-plus {
-  border: 1px solid #000;
+  border: none;
   background: rgba(255, 255, 255, 0.42);
-  color: #000;
+  color: var(--text);
   border-radius: 8px;
   width: 24px;
   height: 24px;
   line-height: 20px;
   font-size: 16px;
   cursor: pointer;
+  box-shadow: 0 1px 3px rgba(55, 38, 62, 0.1);
 }
 
 .wallet-inline-edit {
   margin-top: 0.3rem;
-  border: 1px solid #000;
+  border: none;
   border-radius: 10px;
   padding: 0.25rem 0.4rem;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 1px 4px rgba(55, 38, 62, 0.08);
 }
 
 .wallet-inline-edit span {
@@ -528,13 +568,14 @@ textarea.input-grow,
 }
 
 .wallet-inline-edit input {
-  border: 1px solid #000;
+  border: none;
   border-radius: 8px;
   padding: 0.18rem 0.35rem;
   width: 120px;
   font-size: 0.78rem;
   background: #fff;
-  color: #111;
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(55, 38, 62, 0.08);
 }
 
 .wallet-chip-icon {
@@ -550,7 +591,7 @@ textarea.input-grow,
 }
 
 .wallet-chip-value {
-  color: #000;
+  color: var(--text);
   font-size: 0.82rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -565,12 +606,12 @@ textarea.input-grow,
 
 .banner.error {
   background: rgba(240, 113, 120, 0.16);
-  border: 1px solid rgba(240, 113, 120, 0.38);
+  border: none;
   color: #7a2f43;
 }
 
 .banner.ok {
   background: rgba(93, 163, 116, 0.14);
-  border: 1px solid rgba(93, 163, 116, 0.34);
+  border: none;
   color: #315b3f;
 }

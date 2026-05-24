@@ -40,26 +40,32 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
     openai_api_key: str = ""
-    # Same key, alternate env name (e.g. staging / internal pipelines)
-    outspark_openai_staging_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gemini_model: str = "gemini-2.0-flash"
     gemini_openai_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    # Reasoning models (e.g. gpt-oss) default ~16k reasoning budget on OpenRouter → 402 on low credits.
+    # None: auto (cap only for known reasoning slugs). 0: never send reasoning.* body.
+    # Positive: hard cap for reasoning.max_tokens (still clamped to completion cap).
+    openrouter_reasoning_max_tokens: int | None = None
     gemini_api_key: str = ""
-    cors_origin: str = "http://localhost:5173"
+    # Comma-separated; localhost vs 127.0.0.1 pairs are auto-expanded in main.py
+    cors_origin: str = "http://localhost:5173,http://127.0.0.1:5173"
     credentials_encryption_key: str = ""
     # Per-request bounds for LLM HTTP calls (tool loops = multiple round-trips).
     llm_connect_timeout_seconds: float = 45.0
     llm_read_timeout_seconds: float = 300.0
+    # Cap each completion (output) size — OpenRouter credits scale with this; use max_completion_tokens on OR.
+    llm_max_output_tokens: int = 2048
+    # If set (absolute or relative to apps/api), each /chat LLM run writes JSON traces under {dir}/{user_id}/{run_id}/
+    llm_flow_trace_dir: str = ""
+    llm_flow_trace_max_chars: int = 6000
 
     def openai_key_effective(self) -> str:
-        """Prefer OPENAI_API_KEY; if empty, use OUTSPARK_OPENAI_STAGING_API_KEY."""
-        a = (self.openai_api_key or "").strip()
-        if a:
-            return a
-        return (self.outspark_openai_staging_api_key or "").strip()
+        """OpenAI API + Whisper: OPENAI_API_KEY only."""
+        return (self.openai_api_key or "").strip()
 
 
 @lru_cache

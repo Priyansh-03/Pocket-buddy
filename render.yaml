@@ -22,10 +22,14 @@ services:
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
       - key: CORS_ORIGIN
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o-mini
+      - key: LLM_MAX_OUTPUT_TOKENS
+        value: "2048"
 
   - type: web
     name: survival-web

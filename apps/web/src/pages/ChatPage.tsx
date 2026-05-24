@@ -2,11 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Wallet2, X } from "lucide-react";
 import { ChatComposer, type LlmProviderId } from "@/components/chat/ChatComposer";
-import { apiFetch, apiUrl } from "../api/client";
+import { apiFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { formatNowIST } from "../lib/istClock";
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+const LISTEN_MAX_MS = 55_000;
+/** Ring completes 0→1 over this window (visual matches typical short sessions). */
+const MIC_RING_PERIOD_MS = 5_000;
+const SILENCE_END_MS = 2_800;
 
 /** Hide raw ** from model / old copy in the UI */
 function bubbleText(s: string) {
@@ -22,8 +27,8 @@ function getSpeechRecognition(): (new () => SpeechRecognition) | null {
 }
 
 function normalizeProvider(p: string | undefined): LlmProviderId {
-  if (p === "openrouter" || p === "gemini") return p;
-  return "openai";
+  if (p === "openai" || p === "openrouter" || p === "gemini") return p;
+  return "openrouter";
 }
 
 function walletText(v: string | null | undefined): string {
@@ -33,6 +38,19 @@ function walletText(v: string | null | undefined): string {
 
 export function ChatPage() {
   const { token, logout, user, refreshUser } = useAuth();
+  const [profitSnap, setProfitSnap] = useState<{ budget: number | null; profit: number | null }>({ budget: null, profit: null });
+
+  const refreshProfit = useCallback(async () => {
+    if (!token) return;
+    try {
+      const today = await apiFetch<{ budget_inr: string | null; profit_inr: string | null }>("/users/me/today", { token, method: "GET" });
+      setProfitSnap({
+        budget: today.budget_inr != null ? Number(today.budget_inr) : null,
+        profit: today.profit_inr != null ? Number(today.profit_inr) : null,
+      });
+    } catch { /* non-critical */ }
+  }, [token]);
+
   const [messages, setMessages] = useState<Msg[]>([
     { role: "assistant", content: "Main tumhare paise ka accountant dost hoon 😄 Jo likhoge woh yaad, jo nahi likhoge woh hawa.😉" },
   ]);
@@ -41,19 +59,27 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
-  const [recordingWhisper, setRecordingWhisper] = useState(false);
+  const [micRing, setMicRing] = useState(0);
   const [istNow, setIstNow] = useState(() => formatNowIST());
   const [walletSaving, setWalletSaving] = useState(false);
   const [walletEditOpenFor, setWalletEditOpenFor] = useState<number | null>(null);
   const [walletEditDraft, setWalletEditDraft] = useState("");
   const walletEditRef = useRef<HTMLInputElement | null>(null);
   const recRef = useRef<SpeechRecognition | null>(null);
+  const listenRafRef = useRef<number | null>(null);
+  const silenceIvRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const listenStartedAtRef = useRef(0);
+  const lastResultAtRef = useRef(0);
+  const heardSpeechRef = useRef(false);
+  const listenCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setIstNow(formatNowIST()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => { void refreshProfit(); }, [refreshProfit]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -77,14 +103,15 @@ export function ChatPage() {
         setSessionId(res.session_id);
         setMessages((m) => [...m, { role: "assistant", content: res.reply }]);
         await refreshUser();
+        void refreshProfit();
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Chat failed");
-        setMessages((m) => [...m, { role: "assistant", content: "Something went wrong — check Settings → API key." }]);
+        setMessages((m) => [...m, { role: "assistant", content: "Something went wrong — network check karo ya Settings → provider." }]);
       } finally {
         setSending(false);
       }
     },
-    [token, sessionId, refreshUser],
+    [token, sessionId, refreshUser, refreshProfit],
   );
 
   async function submitChat() {
@@ -115,6 +142,14 @@ export function ChatPage() {
     user?.wallet_3_inr ?? null,
     user?.wallet_4_inr ?? null,
     user?.wallet_5_inr ?? null,
+  ];
+
+  const walletLoans = [
+    user?.wallet_1_loan_inr ?? null,
+    user?.wallet_2_loan_inr ?? null,
+    user?.wallet_3_loan_inr ?? null,
+    user?.wallet_4_loan_inr ?? null,
+    user?.wallet_5_loan_inr ?? null,
   ];
 
   useEffect(() => {
@@ -151,7 +186,7 @@ export function ChatPage() {
 
   async function saveWalletValue(walletId: number, raw: string) {
     if (!token || walletSaving) return;
-    const clean = raw.trim();
+    const clean = raw.trim().replace(/,/g, "");
     const payload: Record<string, unknown> = {
       active_wallet_id: walletId,
       [`wallet_${walletId}_inr`]: clean ? clean : null,
@@ -196,6 +231,24 @@ export function ChatPage() {
     }
   }
 
+  async function clearWalletLoan(walletId: number) {
+    if (!token || walletSaving) return;
+    setWalletSaving(true);
+    setErr(null);
+    try {
+      await apiFetch("/users/me", {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ clear_loan_wallet_ids: [walletId] }),
+      });
+      await refreshUser();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not clear loan");
+    } finally {
+      setWalletSaving(false);
+    }
+  }
+
   async function removeWalletTab(walletId: number) {
     if (!token || walletSaving || walletId < 1 || walletId > 5) return;
     setWalletSaving(true);
@@ -214,6 +267,59 @@ export function ChatPage() {
     }
   }
 
+  useEffect(() => {
+    return () => {
+      if (listenCloseTimerRef.current != null) {
+        clearTimeout(listenCloseTimerRef.current);
+        listenCloseTimerRef.current = null;
+      }
+      if (listenRafRef.current != null) cancelAnimationFrame(listenRafRef.current);
+      if (silenceIvRef.current != null) clearInterval(silenceIvRef.current);
+      try {
+        recRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  const stopVoiceSession = useCallback((opts?: { immediate?: boolean }) => {
+    if (listenCloseTimerRef.current != null) {
+      clearTimeout(listenCloseTimerRef.current);
+      listenCloseTimerRef.current = null;
+    }
+    if (listenRafRef.current != null) {
+      cancelAnimationFrame(listenRafRef.current);
+      listenRafRef.current = null;
+    }
+    if (silenceIvRef.current != null) {
+      clearInterval(silenceIvRef.current);
+      silenceIvRef.current = null;
+    }
+    const r = recRef.current;
+    recRef.current = null;
+    if (r) {
+      r.onend = null;
+      r.onerror = null;
+      try {
+        r.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    if (opts?.immediate) {
+      setListening(false);
+      setMicRing(0);
+      return;
+    }
+    setMicRing(1);
+    listenCloseTimerRef.current = setTimeout(() => {
+      listenCloseTimerRef.current = null;
+      setListening(false);
+      setMicRing(0);
+    }, 220);
+  }, []);
+
   function toggleListen() {
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
@@ -221,72 +327,54 @@ export function ChatPage() {
       return;
     }
     if (listening) {
-      recRef.current?.stop();
-      setListening(false);
+      stopVoiceSession({ immediate: true });
       return;
     }
+    if (listenCloseTimerRef.current != null) {
+      clearTimeout(listenCloseTimerRef.current);
+      listenCloseTimerRef.current = null;
+    }
     setErr(null);
+    heardSpeechRef.current = false;
+    lastResultAtRef.current = Date.now();
+    listenStartedAtRef.current = Date.now();
     const rec = new Ctor();
     rec.lang = "en-IN";
     rec.interimResults = true;
-    rec.continuous = false;
+    rec.continuous = true;
     rec.onresult = (ev: SpeechRecognitionEvent) => {
+      heardSpeechRef.current = true;
+      lastResultAtRef.current = Date.now();
       let text = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) text += ev.results[i][0].transcript;
       setInput((prev) => `${prev} ${text}`.trim());
     };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
+    rec.onerror = () => stopVoiceSession();
+    rec.onend = () => {
+      stopVoiceSession();
+    };
     rec.start();
     recRef.current = rec;
     setListening(true);
-  }
+    setMicRing(0);
 
-  async function recordWhisper() {
-    if (!token) return;
-    setErr(null);
-    setRecordingWhisper(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : undefined;
-      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      const chunks: BlobPart[] = [];
-      mr.ondataavailable = (e) => {
-        if (e.data.size) chunks.push(e.data);
-      };
-      const done = new Promise<void>((resolve) => {
-        mr.onstop = () => resolve();
-      });
-      mr.start(250);
-      await new Promise((r) => setTimeout(r, 4000));
-      if (mr.state === "recording") mr.stop();
-      await done;
-      stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(chunks, { type: mime || "audio/webm" });
-      const fd = new FormData();
-      fd.append("file", blob, "clip.webm");
-      const res = await fetch(apiUrl("/transcribe"), {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      if (!res.ok) {
-        let detail = res.statusText;
-        try {
-          const j = await res.json();
-          if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
-        } catch {
-          /* ignore */
-        }
-        throw new Error(detail);
+    const tick = () => {
+      const elapsedMs = Date.now() - listenStartedAtRef.current;
+      setMicRing(Math.min(1, elapsedMs / MIC_RING_PERIOD_MS));
+      if (elapsedMs >= LISTEN_MAX_MS) {
+        stopVoiceSession();
+        return;
       }
-      const j = (await res.json()) as { text: string };
-      setInput((p) => `${p} ${j.text || ""}`.trim());
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Transcription failed");
-    } finally {
-      setRecordingWhisper(false);
-    }
+      listenRafRef.current = requestAnimationFrame(tick);
+    };
+    listenRafRef.current = requestAnimationFrame(tick);
+
+    silenceIvRef.current = setInterval(() => {
+      if (!heardSpeechRef.current) return;
+      if (Date.now() - lastResultAtRef.current >= SILENCE_END_MS) {
+        stopVoiceSession();
+      }
+    }, 350);
   }
 
   const provider = normalizeProvider(user?.llm_provider);
@@ -301,7 +389,7 @@ export function ChatPage() {
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.35rem" }}>
-          <div className="row">
+          <div className="topbar-settings-block">
             <Link className="btn ghost" to="/settings">
               Settings
             </Link>
@@ -314,10 +402,26 @@ export function ChatPage() {
               const wid = i + 1;
               if (val == null) return null;
               const active = (user?.active_wallet_id ?? 1) === wid;
+              const loan = wid === 1 ? null : walletLoans[i]; // wallet 1 never shows loan indicator
+              const loanNum = loan != null ? Number(loan) : null;
+              const loanPositive = loanNum != null && loanNum > 0;
+              const loanNegative = loanNum != null && loanNum < 0;
               return (
                 <button key={wid} type="button" className={`wallet-tab ${active ? "active" : ""}`} onClick={() => void switchWallet(wid)}>
                   <Wallet2 size={13} className="wallet-chip-icon" />
                   <span>wallet {wid}: ₹{walletText(val)}</span>
+                  {loanNegative && (
+                    <span style={{ display: "flex", alignItems: "center", gap: "0.1rem" }}>
+                      <span style={{ color: "#ef4444", fontWeight: 600, fontSize: "0.7rem" }}>{loanNum!.toLocaleString("en-IN")}</span>
+                      <span className="wallet-tab-close" title="Clear loan" onClick={(e) => { e.stopPropagation(); void clearWalletLoan(wid); }}><X size={10} /></span>
+                    </span>
+                  )}
+                  {loanPositive && (
+                    <span style={{ display: "flex", alignItems: "center", gap: "0.1rem" }}>
+                      <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.7rem" }}>+{loanNum!.toLocaleString("en-IN")}</span>
+                      <span className="wallet-tab-close" title="Clear loan" onClick={(e) => { e.stopPropagation(); void clearWalletLoan(wid); }}><X size={10} /></span>
+                    </span>
+                  )}
                   <span
                     className="wallet-tab-close"
                     onClick={(e) => {
@@ -334,6 +438,18 @@ export function ChatPage() {
               <Plus size={13} />
             </button>
           </div>
+          {(profitSnap.budget != null || profitSnap.profit != null) && (() => {
+            const profit = profitSnap.profit ?? 0;
+            const isPos = profit >= 0;
+            const color = isPos ? "#22c55e" : "#ef4444";
+            const sign = isPos ? "+" : "-";
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.7rem", marginTop: "0.15rem" }}>
+                <span style={{ color: "var(--muted)" }}>Buffer</span>
+                <span style={{ color, fontWeight: 700 }}>{sign}₹{Math.abs(profit).toLocaleString("en-IN")}</span>
+              </div>
+            );
+          })()}
           {walletEditOpenFor != null && (
             <div className="wallet-inline-edit">
               <span>Wallet {walletEditOpenFor}</span>
@@ -392,9 +508,8 @@ export function ChatPage() {
           provider={provider}
           onProviderChange={(id) => void changeProvider(id)}
           onMicClick={toggleListen}
-          onRecordClick={() => void recordWhisper()}
           listening={listening}
-          recording={recordingWhisper}
+          micListenElapsedFraction={micRing}
         />
       </div>
     </div>

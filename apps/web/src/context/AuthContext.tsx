@@ -12,8 +12,17 @@ export type UserMe = {
   wallet_3_inr?: string | null;
   wallet_4_inr?: string | null;
   wallet_5_inr?: string | null;
+  daily_budget_inr?: string | null;
+  profit_inr?: string | null;
+  wallet_1_loan_inr?: string | null;
+  wallet_2_loan_inr?: string | null;
+  wallet_3_loan_inr?: string | null;
+  wallet_4_loan_inr?: string | null;
+  wallet_5_loan_inr?: string | null;
   active_wallet_id?: number;
   money_profile_notes?: string | null;
+  food_menu_text?: string | null;
+  remember_text?: string | null;
   llm_provider: string;
 };
 
